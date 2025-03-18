@@ -1,0 +1,311 @@
+#include <WiFi.h>
+#include <HTTPClient.h>
+#include <SPI.h>
+#include <MFRC522.h>
+#include <Wire.h>
+#include <LiquidCrystal_I2C.h>
+
+#define SS_PIN 21
+#define RST_PIN 22
+#define BUZZER_PIN 13
+#define RED_LED 14
+#define GREEN_LED 12
+#define SDA_LCD 4
+#define SCL_LCD 5
+
+const char* ssid = "Js'Media";
+const char* password = "password";
+const char* serverUrl = "http://192.168.42.52:8000/api/rfid-scan";
+
+MFRC522 rfid(SS_PIN, RST_PIN);
+LiquidCrystal_I2C lcd(0x27, 16, 2);
+
+void setup() {
+    Serial.begin(115200);
+    Wire.begin(SDA_LCD, SCL_LCD);
+    lcd.init();
+    lcd.backlight();
+
+    pinMode(BUZZER_PIN, OUTPUT);
+    pinMode(RED_LED, OUTPUT);
+    pinMode(GREEN_LED, OUTPUT);
+
+    lcd.setCursor(0, 0);
+    lcd.print("Connecting WiFi..");
+
+    WiFi.begin(ssid, password);
+    while (WiFi.status() != WL_CONNECTED) {
+        digitalWrite(RED_LED, HIGH);
+        tone(BUZZER_PIN, 1000);
+        delay(500);
+        digitalWrite(RED_LED, LOW);
+        noTone(BUZZER_PIN);
+        delay(500);
+        Serial.println("Connecting to WiFi...");
+    }
+
+    lcd.clear();
+    lcd.setCursor(0, 0);
+    lcd.print("WiFi Connected");
+    delay(2000);
+    lcd.clear();
+
+    showScanMessage();
+    
+    SPI.begin();
+    rfid.PCD_Init();
+    Serial.println("RFID reader ready");
+}
+
+void loop() {
+    if (!rfid.PICC_IsNewCardPresent() || !rfid.PICC_ReadCardSerial()) {
+        return;
+    }
+
+    String rfidCode = "";
+    for (byte i = 0; i < rfid.uid.size; i++) {
+        rfidCode += String(rfid.uid.uidByte[i], HEX);
+    }
+
+    // ✅ Activate green LED & buzzer **IMMEDIATELY** after scanning
+    digitalWrite(GREEN_LED, HIGH);
+    tone(BUZZER_PIN, 1000);
+    delay(500);
+    digitalWrite(GREEN_LED, LOW);
+    noTone(BUZZER_PIN);
+
+    String hallName = "CLT";
+    String response = sendRfidToServer(rfidCode, hallName);
+
+    lcd.clear();
+    scrollText(response, 0); // Only display the response
+
+    showScanMessage(); // Reset LCD to "Please Scan Your Card"
+
+    rfid.PICC_HaltA();
+}
+
+// Function to send RFID to server and get response
+String sendRfidToServer(String rfidCode, String hallName) {
+    if (WiFi.status() == WL_CONNECTED) {
+        WiFiClient client;
+        HTTPClient http;
+
+        http.begin(client, serverUrl);
+        http.addHeader("Content-Type", "application/json");
+
+        String jsonBody = "{\"rfid\":\"" + rfidCode + "\",\"hall_name\":\"" + hallName + "\"}";
+        int httpResponseCode = http.POST(jsonBody);
+
+        String response = "";
+        if (httpResponseCode > 0) {
+            response = http.getString();
+            Serial.println("Response: " + response);
+        } else {
+            response = "Error: " + String(httpResponseCode);
+            Serial.println("Error sending request");
+        }
+
+        http.end();
+        return response;
+    } else {
+        return "WiFi Disconnected";
+    }
+}
+
+// ✅ Faster scrolling text function
+void scrollText(String text, int row) {
+    if (text.length() <= 16) {
+        lcd.setCursor(0, row);
+        lcd.print(text);
+        delay(1500);  // Show for 1.5 seconds before clearing
+        return;
+    }
+
+    String paddedText = " " + text + " ";
+    for (int i = 0; i < paddedText.length() - 15; i++) {
+        lcd.setCursor(0, row);
+        lcd.print(paddedText.substring(i, i + 16));
+
+        // ✅ Allow new card scanning while scrolling text
+        if (rfid.PICC_IsNewCardPresent() && rfid.PICC_ReadCardSerial()) {
+            return;
+        }
+        
+        delay(150);  // Faster scrolling speed
+    }
+}
+
+// Function to show "Please Scan Your Card" message
+void showScanMessage() {
+    lcd.clear();
+    lcd.setCursor(0, 0);
+    lcd.print("Scan Your Card..");
+}
+
+
+
+
+
+//working led light with response
+#include <WiFi.h>
+#include <HTTPClient.h>
+#include <SPI.h>
+#include <MFRC522.h>
+#include <Wire.h>
+#include <LiquidCrystal_I2C.h>
+
+#define SS_PIN 21
+#define RST_PIN 22
+#define BUZZER_PIN 13
+#define RED_LED 14
+#define GREEN_LED 12
+#define SDA_LCD 4
+#define SCL_LCD 5
+
+const char* ssid = "Js'Media";
+const char* password = "password";
+const char* serverUrl = "http://192.168.42.52:8000/api/rfid-scan";
+
+MFRC522 rfid(SS_PIN, RST_PIN);
+LiquidCrystal_I2C lcd(0x27, 16, 2);
+
+void setup() {
+    Serial.begin(115200);
+    Wire.begin(SDA_LCD, SCL_LCD);
+    lcd.init();
+    lcd.backlight();
+
+    pinMode(BUZZER_PIN, OUTPUT);
+    pinMode(RED_LED, OUTPUT);
+    pinMode(GREEN_LED, OUTPUT);
+
+    lcd.setCursor(0, 0);
+    lcd.print("Connecting WiFi..");
+
+    WiFi.begin(ssid, password);
+    while (WiFi.status() != WL_CONNECTED) {
+        digitalWrite(RED_LED, HIGH);
+        tone(BUZZER_PIN, 1000);
+        delay(500);
+        digitalWrite(RED_LED, LOW);
+        noTone(BUZZER_PIN);
+        delay(500);
+        Serial.println("Connecting to WiFi...");
+    }
+
+    lcd.clear();
+    lcd.setCursor(0, 0);
+    lcd.print("WiFi Connected");
+    delay(2000);
+    lcd.clear();
+
+    showScanMessage();
+
+    SPI.begin();
+    rfid.PCD_Init();
+    Serial.println("RFID reader ready");
+}
+
+void loop() {
+    if (!rfid.PICC_IsNewCardPresent() || !rfid.PICC_ReadCardSerial()) {
+        return;
+    }
+
+    String rfidCode = "";
+    for (byte i = 0; i < rfid.uid.size; i++) {
+        rfidCode += String(rfid.uid.uidByte[i], HEX);
+    }
+
+    // ✅ Send RFID and receive response
+    String hallName = "CLT";
+    String response = sendRfidToServer(rfidCode, hallName);
+
+    // ✅ LED and buzzer based on response message
+    if (isSuccess(response)) {
+        activateLED(GREEN_LED);
+    } else {
+        activateLED(RED_LED);
+    }
+
+    lcd.clear();
+    scrollText(response, 0); // Display response
+
+    showScanMessage(); // Reset LCD to "Please Scan Your Card"
+
+    rfid.PICC_HaltA();
+}
+
+// ✅ Function to determine success response
+bool isSuccess(String response) {
+    return (response.indexOf("Attendance marked successfully") != -1 );
+            // response.indexOf("Attendance marked successfully") != -1 ||
+            // response.indexOf("Successfully marked present") != -1);
+}
+
+// ✅ Function to activate LED and buzzer
+void activateLED(int ledPin) {
+    digitalWrite(ledPin, HIGH);
+    tone(BUZZER_PIN, 1000);
+    delay(2000);
+    digitalWrite(ledPin, LOW);
+    noTone(BUZZER_PIN);
+}
+
+// Function to send RFID to server and get response
+String sendRfidToServer(String rfidCode, String hallName) {
+    if (WiFi.status() == WL_CONNECTED) {
+        WiFiClient client;
+        HTTPClient http;
+
+        http.begin(client, serverUrl);
+        http.addHeader("Content-Type", "application/json");
+
+        String jsonBody = "{\"rfid\":\"" + rfidCode + "\",\"hall_name\":\"" + hallName + "\"}";
+        int httpResponseCode = http.POST(jsonBody);
+
+        String response = "";
+        if (httpResponseCode > 0) {
+            response = http.getString();
+            Serial.println("Response: " + response);
+        } else {
+            response = "Error: " + String(httpResponseCode);
+            Serial.println("Error sending request");
+        }
+
+        http.end();
+        return response;
+    } else {
+        return "WiFi Disconnected";
+    }
+}
+
+// ✅ Faster scrolling text function
+void scrollText(String text, int row) {
+    if (text.length() <= 16) {
+        lcd.setCursor(0, row);
+        lcd.print(text);
+        delay(1500);
+        return;
+    }
+
+    String paddedText = " " + text + " ";
+    for (int i = 0; i < paddedText.length() - 15; i++) {
+        lcd.setCursor(0, row);
+        lcd.print(paddedText.substring(i, i + 16));
+
+        // ✅ Allow scanning another card while scrolling
+        if (rfid.PICC_IsNewCardPresent() && rfid.PICC_ReadCardSerial()) {
+            return;
+        }
+
+        delay(150);
+    }
+}
+
+// Function to show "Please Scan Your Card" message
+void showScanMessage() {
+    lcd.clear();
+    lcd.setCursor(0, 0);
+    lcd.print("Scan Your Card..");
+}
