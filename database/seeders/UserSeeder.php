@@ -23,21 +23,21 @@ class UserSeeder extends Seeder
             'rfid' => null,
         ]);
 
-        // Create Lecturers
-        User::create([
-            'name' => 'John Doe',
-            'email' => 'lecturer1@example.com',
-            'password' => Hash::make('password123'),
-            'role' => 'lecturer',
-            'rfid' => '123456789',
-        ]);
+        // // Create Lecturers
+        // User::create([
+        //     'name' => 'John Doe',
+        //     'email' => 'lecturer1@example.com',
+        //     'password' => Hash::make('password123'),
+        //     'role' => 'lecturer',
+        //     'rfid' => '123456789',
+        // ]);
 
-        User::create([
-            'name' => 'Jane Smith',
-            'email' => 'lecturer2@example.com',
-            'password' => Hash::make('password123'),
-            'role' => 'lecturer',
-            'rfid' => '987654321',
-        ]);
+        // User::create([
+        //     'name' => 'Jane Smith',
+        //     'email' => 'lecturer2@example.com',
+        //     'password' => Hash::make('password123'),
+        //     'role' => 'lecturer',
+        //     'rfid' => '987654321',
+        // ]);
     }
 }

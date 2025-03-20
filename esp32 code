@@ -167,6 +167,7 @@ const char* ssid = "Js'Media";
 const char* password = "password";
 const char* serverUrl = "http://192.168.42.52:8000/api/rfid-scan"; //PRONE TO CHANGES
 
+
 MFRC522 rfid(SS_PIN, RST_PIN);
 LiquidCrystal_I2C lcd(0x27, 16, 2);
 
@@ -304,6 +305,186 @@ void scrollText(String text, int row) {
 }
 
 // Function to show "Please Scan Your Card" message
+void showScanMessage() {
+    lcd.clear();
+    lcd.setCursor(0, 0);
+    lcd.print("Scan Your Card..");
+}
+
+
+
+
+
+//working for live server 
+#include <WiFi.h>
+#include <WiFiClientSecure.h>
+#include <HTTPClient.h>
+#include <SPI.h>
+#include <MFRC522.h>
+#include <Wire.h>
+#include <LiquidCrystal_I2C.h>
+
+#define SS_PIN 21
+#define RST_PIN 22
+#define BUZZER_PIN 13
+#define RED_LED 14
+#define GREEN_LED 12
+#define SDA_LCD 4
+#define SCL_LCD 5
+
+const char* ssid = "Js'Media";
+const char* password = "password";
+
+// ✅ LIVE SERVER (HTTPS)
+const char* serverUrl = "https://bkproductsonline.com/new_backend/public/api/rfid-scan";
+
+// ✅ Secure Client for HTTPS
+WiFiClientSecure client;
+MFRC522 rfid(SS_PIN, RST_PIN);
+LiquidCrystal_I2C lcd(0x27, 16, 2);
+
+void setup() {
+    Serial.begin(115200);
+    Wire.begin(SDA_LCD, SCL_LCD);
+    lcd.init();
+    lcd.backlight();
+
+    pinMode(BUZZER_PIN, OUTPUT);
+    pinMode(RED_LED, OUTPUT);
+    pinMode(GREEN_LED, OUTPUT);
+
+    lcd.setCursor(0, 0);
+    lcd.print("Connecting WiFi..");
+
+    WiFi.begin(ssid, password);
+    while (WiFi.status() != WL_CONNECTED) {
+        digitalWrite(RED_LED, HIGH);
+        tone(BUZZER_PIN, 1000);
+        delay(500);
+        digitalWrite(RED_LED, LOW);
+        noTone(BUZZER_PIN);
+        delay(500);
+        Serial.println("Connecting to WiFi...");
+    }
+
+    Serial.print("WiFi Connected. IP: ");
+    Serial.println(WiFi.localIP());
+
+    lcd.clear();
+    lcd.setCursor(0, 0);
+    lcd.print("WiFi Connected");
+    delay(2000);
+    lcd.clear();
+
+    showScanMessage();
+
+    SPI.begin();
+    rfid.PCD_Init();
+    Serial.println("RFID reader ready");
+
+    // ✅ Bypass SSL verification (Required for HTTPS)
+    client.setInsecure();
+}
+
+void loop() {
+    if (!rfid.PICC_IsNewCardPresent() || !rfid.PICC_ReadCardSerial()) {
+        return;
+    }
+
+    String rfidCode = "";
+    for (byte i = 0; i < rfid.uid.size; i++) {
+        rfidCode += String(rfid.uid.uidByte[i], HEX);
+    }
+
+    Serial.println("Scanned RFID: " + rfidCode);
+
+    // ✅ Send RFID and get response
+    String hallName = "CLT";
+    String response = sendRfidToServer(rfidCode, hallName);
+
+    // ✅ LED & Buzzer feedback
+    if (isSuccess(response)) {
+        activateLED(GREEN_LED);
+    } else {
+        activateLED(RED_LED);
+    }
+
+    lcd.clear();
+    scrollText(response, 0);
+
+    showScanMessage();
+    rfid.PICC_HaltA();
+}
+
+// ✅ Check if response means success
+bool isSuccess(String response) {
+    return (response.indexOf("Attendance marked successfully") != -1);
+}
+
+// ✅ LED & Buzzer function
+void activateLED(int ledPin) {
+    digitalWrite(ledPin, HIGH);
+    tone(BUZZER_PIN, 1000);
+    delay(2000);
+    digitalWrite(ledPin, LOW);
+    noTone(BUZZER_PIN);
+}
+
+// ✅ Send RFID Data to API
+String sendRfidToServer(String rfidCode, String hallName) {
+    if (WiFi.status() == WL_CONNECTED) {
+        HTTPClient http;
+        Serial.println("Connecting to server...");
+
+        http.begin(client, serverUrl);
+        http.addHeader("Content-Type", "application/json");
+
+        String jsonBody = "{\"rfid\":\"" + rfidCode + "\",\"hall_name\":\"" + hallName + "\"}";
+        Serial.println("Sending: " + jsonBody);
+
+        int httpResponseCode = http.POST(jsonBody);
+        Serial.print("HTTP Response Code: ");
+        Serial.println(httpResponseCode);
+
+        String response = "";
+        if (httpResponseCode > 0) {
+            response = http.getString();
+            Serial.println("Response: " + response);
+        } else {
+            Serial.println("Error sending request: " + String(httpResponseCode));
+        }
+
+        http.end();
+        return response;
+    } else {
+        Serial.println("WiFi Disconnected");
+        return "WiFi Disconnected";
+    }
+}
+
+// ✅ Scrolling text function
+void scrollText(String text, int row) {
+    if (text.length() <= 16) {
+        lcd.setCursor(0, row);
+        lcd.print(text);
+        delay(1500);
+        return;
+    }
+
+    String paddedText = " " + text + " ";
+    for (int i = 0; i < paddedText.length() - 15; i++) {
+        lcd.setCursor(0, row);
+        lcd.print(paddedText.substring(i, i + 16));
+
+        if (rfid.PICC_IsNewCardPresent() && rfid.PICC_ReadCardSerial()) {
+            return;
+        }
+
+        delay(150);
+    }
+}
+
+// ✅ Show "Scan Your Card" message
 void showScanMessage() {
     lcd.clear();
     lcd.setCursor(0, 0);
