@@ -17,7 +17,7 @@
                     @endforeach  
                 </select>  
             </div>  
-
+ 
             <div class="col-auto">  
                 <label for="date" class="visually-hidden">Filter by Date:</label>  
                 <input type="date" name="date" id="date" class="form-control" value="{{ request('date') }}" onchange="this.form.submit()">  

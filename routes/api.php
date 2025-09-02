@@ -19,7 +19,7 @@ Route::get('/latest-rfid', [RFIDController::class, 'getLatestRfid']);
 
 
 Route::post('/rfid-scan', function (Request $request) {
-   // Validate fields
+    // Validate required fields
     $request->validate([
         'uid' => 'required|string',
         'hall_name' => 'required|string',
@@ -27,31 +27,34 @@ Route::post('/rfid-scan', function (Request $request) {
     ]);
 
     // Check if the UID exists in the users table
-    $user = User::where('rfid_uid', $request->input('uid'))->first();
+    $userExists = User::where('rfid', $request->input('uid'))->exists();
 
-    if ($user) {
-        // A user with this UID exists. Save the image with the UID as the name.
-        $imageName = $user->rfid_uid . '.' . $request->file('image')->getClientOriginalExtension();
-        $path = $request->file('image')->storeAs('rfid_images', $imageName, 'public');
+    if ($userExists) {
+        // User with this UID exists; save the image
+        $uid = $request->input('uid');
+        $extension = 'jpg'; // Always save as JPG as per the requirement
+        $imageName = "{$uid}.{$extension}";
+        
+        $path = $request->file('image')->storeAs('attendanceImages', $imageName, 'public');
 
-        // You can optionally link this image to the user's profile picture field.
-        // This example updates the user's profile_picture field to point to the new image.
-        $user->profile_picture = 'rfid_images/' . $imageName;
-        $user->save();
-
-        // Return a success response with the new path
         return response()->json([
-            'uid' => $user->rfid_uid,
-            'hall' => $request->input('hall_name'),
-            'image_path' => Storage::url($path),
-            'status' => 'received and saved'
+            'status' => 'success',
+            'message' => 'Attendance image saved.',
+            'uid' => $uid,
+            'image_path' => Storage::url($path)
         ]);
 
     } else {
-        // User not found. Return an error.
+        // User not found; log the UID to a text file
+        $uid = $request->input('uid');
+        $logEntry = "UID: {$uid}, Timestamp: " . now() . "\n";
+        
+        Storage::disk('local')->append('unregistered_uids.txt', $logEntry);
+
+        // Return a JSON error message
         return response()->json([
             'status' => 'error',
-            'message' => 'UID not found in the database.'
+            'message' => 'UID not found in the database. UID logged for registration.'
         ], 404);
     }
 });

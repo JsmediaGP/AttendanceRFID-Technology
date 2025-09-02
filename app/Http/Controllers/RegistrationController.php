@@ -7,6 +7,10 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use App\Models\User;
 use Illuminate\Validation\Rule;
+use Illuminate\Support\Facades\Storage;
+use Illuminate\Database\QueryException;
+use Exception;
+
 
 
 
@@ -25,86 +29,190 @@ class RegistrationController extends Controller
     // Store a new user (Onboarding)
     public function store(Request $request)  
     {  
-        $request->validate([  
-            'name' => 'required|string|max:255',  
-            'email' => 'required|email|unique:users,email',  
-            'role' => 'required|in:admin,lecturer,student',  
-            'rfid' => 'nullable|string|unique:users,rfid' // Optional, must be unique  
-        ]);  
 
-        // Create the new user  
-        $user = User::create([  
-            'name' => $request->name,  
-            'email' => $request->email,  
-            'role' => $request->role,  
-            'rfid' => $request->rfid ?? null, // Only assign if not empty  
-            'password' => Hash::make('password123') // Set default hashed password  
-        ]);  
+        try{
+            
+            $rules = [
+                'name' => 'required|string|max:255',
+                'email' => 'required|string|email|max:255|unique:users,email',
+                'role' => 'required|in:admin,lecturer,student',
+            ];
 
-        return response()->json([  
-            'success' => true,  
-            'message' => 'User onboarded successfully!',  
-            'user' => $user,  
-        ]);  
-    }  
+            // Conditional validation for students
+            if ($request->role === 'student') {
+                $rules['rfid'] = 'required|string|unique:users,rfid';
+                $rules['matric_number'] = 'required|string|unique:users,matric_number';
+                $rules['profile_picture'] = 'required|image|mimes:jpeg,png,jpg,gif|max:2048';
+            }
 
+            // Validate the request
+            $request->validate($rules);
+
+            $profilePicturePath = null;
+
+            // Save profile picture only if it's a student and a file was uploaded
+            if ($request->role === 'student' && $request->hasFile('profile_picture')) {
+                $extension = $request->file('profile_picture')->getClientOriginalExtension();
+                $filename = "{$request->rfid}.{$extension}";
+                
+                $path = $request->file('profile_picture')->storeAs('profile_pictures', $filename, 'public');
+                $profilePicturePath = Storage::url($path);
+            }
+
+            // Create the user
+            User::create([
+                'name' => $request->name,
+                'email' => $request->email,
+                'role' => $request->role,
+                'rfid' => $request->role === 'student' ? $request->rfid : null,
+                'matric_number' => $request->role === 'student' ? $request->matric_number : null,
+                'profile_picture' => $profilePicturePath,
+                'password' => Hash::make('password'),
+            ]);
+             return response()->json([
+            'success' => true,
+            'message' => 'User registered successfully!',
+            'redirect_url' => route('admin.users.index') // Provide the redirect URL here
+        ]);
+
+    }catch (Exception $e) {
+        // ... (your error handling remains the same) ...
+        return response()->json([
+            'success' => false,
+            'message' => 'An error occurred. Please check your inputs.'
+        ], 500);
+    
+
+            // return redirect()->route('admin.users.index')->with('success', 'User registered successfully!');
+
+    }
+}  
    
+    
+    public function update(Request $request, User $user)
+{
+    try {
+        // Define base validation rules for all users
+        $rules = [
+            'name' => 'nullable|string|max:255',
+            'email' => [
+                'nullable',
+                'string',
+                'email',
+                'max:255',
+                Rule::unique('users')->ignore($user->id),
+            ],
+            'role' => 'nullable|in:admin,lecturer,student',
+        ];
 
-    public function update(Request $request, User $user)  
-    {  
-        // Initialize validation rules  
-        $rules = [];  
-    
-        // Conditionally add name validation if it is present in the request  
-        if ($request->has('name')) {  
-            $rules['name'] = 'string|max:255'; // Not required, but should be a string  
-        }  
-    
-        // Conditionally add email validation if it is present in the request  
-        if ($request->has('email')) {  
-            $rules['email'] = [  
-                'nullable', // Allow to be null (if not provided)  
-                'email',  
-                Rule::unique('users')->ignore($user->id) // Check uniqueness except for current user  
-            ];  
-        }  
-    
-        // Conditionally add role validation if it is present in the request  
-        if ($request->has('role')) {  
-            $rules['role'] = 'in:admin,lecturer,student'; // Should match one of these values  
-        }  
-    
-        // Conditionally add RFID validation if it is present in the request  
-        if ($request->has('rfid')) {  
-            $rules['rfid'] = [  
-                'nullable',  
-                'string',  
-                Rule::unique('users')->ignore($user->id) // Check uniqueness, ignore current user  
-            ];  
-        }  
-    
-        // Validate input data  
-        $request->validate($rules);  
-    
-        // Update the user's information, using existing values if the new value is not provided  
-        $user->update([  
-            'name' => $request->name ?? $user->name,  // Retain current name if not provided  
-            'email' => $request->email ?? $user->email, // Retain current email if not provided  
-            'role' => $request->role ?? $user->role, // Retain current role if not provided  
-            'rfid' => $request->rfid ?? $user->rfid, // Retain current RFID if not provided  
-        ]);  
-    
-        return response()->json([  
-            'success' => true,  
-            'message' => 'User updated successfully!',  
-        ]);  
-    }    
+        // Conditionally add validation rules for students
+        if ($request->input('role') === 'student' || $user->role === 'student') {
+            $rules['rfid'] = [
+                'nullable',
+                'string',
+                Rule::unique('users')->ignore($user->id),
+            ];
+            $rules['matric_number'] = [
+                'nullable',
+                'string',
+                Rule::unique('users')->ignore($user->id),
+            ];
+            $rules['profile_picture'] = 'nullable|image|mimes:jpeg,png,jpg,gif|max:2048';
+        }
 
-    // Delete user
+        // Validate the request data
+        $request->validate($rules);
+
+        // Prepare data for the update by only including fields that are present in the request
+        $updateData = [];
+
+        if ($request->has('name')) {
+            $updateData['name'] = $request->input('name');
+        }
+
+        if ($request->has('email')) {
+            $updateData['email'] = $request->input('email');
+        }
+
+        if ($request->has('role')) {
+            $updateData['role'] = $request->input('role');
+        }
+
+        if ($request->has('rfid')) {
+            $updateData['rfid'] = $request->input('rfid');
+        }
+
+        if ($request->has('matric_number')) {
+            $updateData['matric_number'] = $request->input('matric_number');
+        }
+
+        // Handle profile picture update if a new one is provided
+        if ($request->hasFile('profile_picture')) {
+            // Delete old profile picture if it exists
+            if ($user->profile_picture) {
+                // Convert the public URL to the internal storage path
+                $oldPath = str_replace('/storage/', 'public/', $user->profile_picture);
+                Storage::delete($oldPath);
+            }
+            
+            // Save the new profile picture
+            $extension = $request->file('profile_picture')->getClientOriginalExtension();
+            $filename = ($request->has('rfid') ? $request->input('rfid') : $user->rfid) . ".{$extension}";
+            $path = $request->file('profile_picture')->storeAs('profile_pictures', $filename, 'public');
+            $updateData['profile_picture'] = Storage::url($path);
+        }
+
+        // Update the user with the prepared data
+        $user->update($updateData);
+
+        return response()->json([
+            'success' => true,
+            'message' => 'User updated successfully! 🎉',
+            'user' => $user,
+        ]);
+        
+    } catch (QueryException $e) {
+        // Catches database-related errors (e.g., duplicate unique fields)
+        return response()->json([
+            'success' => false,
+            'message' => 'Database error: A user with this RFID, Matric Number, or Email may already exist.',
+            'error_details' => $e->getMessage()
+        ], 409); // 409 Conflict
+        
+    } catch (Exception $e) {
+        // Catches any other unexpected errors
+        return response()->json([
+            'success' => false,
+            'message' => 'An unexpected error occurred during the update.',
+            'error_details' => $e->getMessage()
+        ], 500); // 500 Internal Server Error
+    }
+}
+
+
+    // Delete user old
+    // public function destroy($id)
+    // {
+    //     User::findOrFail($id)->delete();
+    //     return response()->json(['message' => 'User deleted successfully!']);
+    // }
+
     public function destroy($id)
     {
-        User::findOrFail($id)->delete();
-        return response()->json(['message' => 'User deleted successfully!']);
+        // Find the user by their ID. If not found, a 404 error is returned.
+        $user = User::findOrFail($id);
+        
+        // Check if the user has a profile picture
+        if ($user->profile_picture) {
+            // Get the path to the picture on the disk and delete it
+            // The str_replace is necessary to convert the URL path to a disk path
+            Storage::delete(str_replace('/storage/', 'public/', $user->profile_picture));
+        }
+        
+        // Delete the user record from the database
+        $user->delete();
+        
+        return response()->json(['message' => 'User and associated profile picture deleted successfully!']);
     }
 
 
@@ -121,22 +229,64 @@ class RegistrationController extends Controller
     // Handle the registration form submission
     public function register(Request $request)
     {
-        $request->validate([
-            'rfid' => 'required|unique:users,rfid',
-            'name' => 'required',
-            'email' => 'required|email|unique:users,email',
+    //     $request->validate([
+    //         'rfid' => 'required|unique:users,rfid',
+    //         'name' => 'required',
+    //         'email' => 'required|email|unique:users,email',
+    //         'role' => 'required|in:admin,lecturer,student',
+    //     ]);
+
+    //     // Create the user
+    //     DB::table('users')->insert([
+    //         'rfid' => $request->rfid,
+    //         'name' => $request->name,
+    //         'email' => $request->email,
+    //         'role' => $request->role,
+    //         'password' => Hash::make('password'), // Set a default password
+    //     ]);
+
+    //     return redirect()->route('home')->with('success', 'User registered successfully!');
+    // }
+
+    // Base validation rules for all roles
+        $rules = [
+            'name' => 'required|string|max:255',
+            'email' => 'required|string|email|max:255|unique:users,email',
             'role' => 'required|in:admin,lecturer,student',
-        ]);
+        ];
+
+        // Conditional validation for students
+        if ($request->role === 'student') {
+            $rules['rfid'] = 'required|string|unique:users,rfid';
+            $rules['matric_number'] = 'required|string|unique:users,matric_number';
+            $rules['profile_picture'] = 'required|image|mimes:jpeg,png,jpg,gif|max:2048';
+        }
+
+        // Validate the request
+        $request->validate($rules);
+
+        $profilePicturePath = null;
+
+        // Save profile picture only if it's a student and a file was uploaded
+        if ($request->role === 'student' && $request->hasFile('profile_picture')) {
+            $extension = $request->file('profile_picture')->getClientOriginalExtension();
+            $filename = "{$request->rfid}.{$extension}";
+            
+            $path = $request->file('profile_picture')->storeAs('public/profile_pictures', $filename);
+            $profilePicturePath = Storage::url($path);
+        }
 
         // Create the user
-        DB::table('users')->insert([
-            'rfid' => $request->rfid,
+        User::create([
             'name' => $request->name,
             'email' => $request->email,
             'role' => $request->role,
-            'password' => Hash::make('password'), // Set a default password
+            'rfid' => $request->role === 'student' ? $request->rfid : null,
+            'matric_number' => $request->role === 'student' ? $request->matric_number : null,
+            'profile_picture' => $profilePicturePath,
+            'password' => Hash::make('password'),
         ]);
 
-        return redirect()->route('home')->with('success', 'User registered successfully!');
+        return redirect()->route('admin.users.index')->with('success', 'User registered successfully!');
     }
 }
